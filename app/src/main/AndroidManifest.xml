@@ -15,7 +15,9 @@
     <application
         android:allowBackup="true"
         android:label="Super EQ"
-        android:theme="@android:style/Theme.Material.NoActionBar">
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:theme="@style/AppTheme">
 
         <activity android:name=".MainActivity" android:exported="true"
             android:launchMode="singleTop">

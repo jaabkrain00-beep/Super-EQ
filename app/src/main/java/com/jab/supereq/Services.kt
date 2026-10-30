@@ -144,14 +144,13 @@ class MediaWatcher : NotificationListenerService() {
 
 data class Song(val id: Long, val title: String, val artist: String, val uri: Uri)
 
-/** Local-music player. Normal mode uses MediaPlayer; karaoke mode uses KaraokeSession (vocal removal). */
+/** Local-music player. MediaPlayer normally; SpatialSession when Spatial/8D is on. */
 object Player {
     val songs = MutableStateFlow<List<Song>>(emptyList())
     val current = MutableStateFlow<Song?>(null)
     val playing = MutableStateFlow(false)
-    val karaoke = MutableStateFlow(false)
     private var mp: MediaPlayer? = null
-    private var ks: KaraokeSession? = null
+    private var ss: SpatialSession? = null
     private var idx = -1
     private var app: Context? = null
 
@@ -179,7 +178,7 @@ object Player {
     private fun release() {
         mp?.let { EqEngine.detach(it.audioSessionId); try { it.release() } catch (_: Throwable) {} }
         mp = null
-        ks?.stop(); ks = null
+        ss?.stop(); ss = null
     }
 
     fun play(i: Int, startMs: Int = 0) {
@@ -190,8 +189,10 @@ object Player {
         idx = i
         val s = list[i]
         current.value = s
-        if (karaoke.value) {
-            ks = KaraokeSession(c, s.uri, startMs * 1000L) { next() }.also { it.start() }
+        if (SParams.mode.value != SParams.OFF) {
+            ss = SpatialSession(c, s.uri, startMs * 1000L, { next() }, {
+                SParams.mode.value = SParams.OFF; play(i, 0)
+            }).also { it.start() }
             playing.value = true
             return
         }
@@ -211,15 +212,16 @@ object Player {
         } catch (_: Throwable) { playing.value = false }
     }
 
-    /** Switch vocal removal on/off and continue the current song from the same position. */
-    fun setKaraoke(on: Boolean) {
-        val pos = ks?.let { (it.positionUs / 1000).toInt() } ?: (mp?.currentPosition ?: 0)
-        karaoke.value = on
-        if (idx >= 0 && (mp != null || ks != null)) play(idx, pos)
+    /** Switch Spatial/8D mode; changes playback engine only when needed, keeps position. */
+    fun setSpatialMode(m: Int) {
+        val wasDsp = ss != null
+        val pos = ss?.let { (it.positionUs / 1000).toInt() } ?: (mp?.currentPosition ?: 0)
+        SParams.mode.value = m
+        if (idx >= 0 && (mp != null || ss != null) && wasDsp != (m != SParams.OFF)) play(idx, pos)
     }
 
     fun toggle() {
-        ks?.let { it.paused = !it.paused; playing.value = !it.paused; return }
+        ss?.let { it.paused = !it.paused; playing.value = !it.paused; return }
         val m = mp ?: run { if (songs.value.isNotEmpty()) play(0); return }
         if (m.isPlaying) { m.pause(); playing.value = false } else { m.start(); playing.value = true }
     }

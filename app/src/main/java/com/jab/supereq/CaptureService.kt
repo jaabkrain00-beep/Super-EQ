@@ -24,11 +24,10 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.math.max
-import kotlin.math.min
 
 /**
- * EXPERIMENTAL live vocal removal for other apps (YouTube Music etc.):
- * capture their playback (AudioPlaybackCapture) -> remove center vocals -> play the result.
+ * EXPERIMENTAL live Spatial / 8D for other apps (YouTube Music etc.):
+ * capture their playback (AudioPlaybackCapture) -> SpatialDsp -> play the result.
  * Works only if the other app allows capture. The original keeps playing, so by default we turn the
  * original's media volume down and play ours on the alarm stream.
  */
@@ -60,7 +59,7 @@ class CaptureService : Service() {
         }
         startFg()
         error.value = ""
-        Thread({ work(code, data) }, "vocal-capture").start()
+        Thread({ work(code, data) }, "spatial-capture").start()
         return START_NOT_STICKY
     }
 
@@ -69,7 +68,7 @@ class CaptureService : Service() {
         nm.createNotificationChannel(NotificationChannel("eq", "Super EQ", NotificationManager.IMPORTANCE_LOW))
         val n: Notification = NotificationCompat.Builder(this, "eq")
             .setSmallIcon(android.R.drawable.ic_lock_silent_mode_off)
-            .setContentTitle("กำลังตัดเสียงร้องจากแอปอื่น")
+            .setContentTitle("กำลังทำ Spatial / 8D ให้แอปอื่น")
             .setContentText("เปิดแอป Super EQ เพื่อหยุด").setOngoing(true).build()
         try {
             ServiceCompat.startForeground(this, 2, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
@@ -101,7 +100,7 @@ class CaptureService : Service() {
                 .setBufferSizeInBytes(max(minIn * 2, 8192))
                 .setAudioPlaybackCaptureConfig(cfg).build()
 
-            val quiet = KParams.quiet.value
+            val quiet = SParams.quiet.value
             val usage = if (quiet) AudioAttributes.USAGE_ALARM else AudioAttributes.USAGE_MEDIA
             val minOut = AudioTrack.getMinBufferSize(sr, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
             track = AudioTrack.Builder()
@@ -132,31 +131,22 @@ class CaptureService : Service() {
             track.play()
 
             val buf = ShortArray(sr / 50 * 2) // 20 ms of stereo
-            var band: VocalBand? = null
-            var bandKey = -1
+            val dsp = SpatialDsp(sr.toFloat())
             var silentReads = 0
             while (running) {
                 val n = rec.read(buf, 0, buf.size)
                 if (n <= 0) { Thread.sleep(5); continue }
-                val rk = KParams.range.value
-                if (band == null || rk != bandKey) {
-                    bandKey = rk
-                    val (lo, hi) = KParams.band()
-                    band = VocalBand(sr.toFloat(), lo, min(hi, sr * 0.45f))
-                }
-                val s = KParams.strength.value
-                val g = KParams.gain.value
-                val vb = band!!
+                val mode = if (EqEngine.ui.value.enabled) SParams.mode.value else SParams.OFF
+                val wd = SParams.width.value; val rm = SParams.room.value; val pd = SParams.period.value
+                val g = SParams.gain.value
                 var i = 0
                 var peak = 0
                 while (i + 1 < n) {
                     val l = buf[i] / 32768f
                     val r = buf[i + 1] / 32768f
-                    val mid = vb.p((l + r) * 0.5f)
-                    val ol = ((l - s * mid) * g).coerceIn(-1f, 1f)
-                    val outR = ((r - s * mid) * g).coerceIn(-1f, 1f)
-                    buf[i] = (ol * 32767f).toInt().toShort()
-                    buf[i + 1] = (outR * 32767f).toInt().toShort()
+                    if (mode == SParams.OFF) { dsp.outL = l; dsp.outR = r } else dsp.process(l, r, mode, wd, rm, pd)
+                    buf[i] = ((dsp.outL * g).coerceIn(-1f, 1f) * 32767f).toInt().toShort()
+                    buf[i + 1] = ((dsp.outR * g).coerceIn(-1f, 1f) * 32767f).toInt().toShort()
                     peak = max(peak, kotlin.math.abs(buf[i].toInt()))
                     i += 2
                 }

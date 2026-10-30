@@ -113,6 +113,11 @@ object EqEngine {
 
     fun setEnabled(b: Boolean) { ui.update { it.copy(enabled = b) }; push() }
     fun setPreset(p: Preset) { ui.update { it.copy(preset = p.name, gains = p.g) }; push() }
+    /** Tap the active preset again -> cancel it (flat curve, no preset). */
+    fun togglePreset(p: Preset) {
+        if (ui.value.preset == p.name) { ui.update { it.copy(preset = "", gains = List(10) { 0f }) }; push() }
+        else setPreset(p)
+    }
     fun setDevice(name: String) { ui.update { it.copy(device = name) }; push() }
     fun setBand(i: Int, finalDb: Float) {
         ui.update {
