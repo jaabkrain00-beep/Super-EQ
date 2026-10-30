@@ -786,11 +786,11 @@ fun LibraryScreen() {
 
 /** kind: 0 prev, 1 play, 2 pause, 3 next */
 @Composable
-private fun CtrlButton(kind: Int, size: Int, primary: Boolean = false, onClick: () -> Unit) {
+private fun CtrlButton(kind: Int, dia: Int, primary: Boolean = false, onClick: () -> Unit) {
     val bg = if (primary) Modifier.background(Brush.linearGradient(Accent)) else Modifier.background(Panel2).border(1.dp, Line, CircleShape)
-    Box(Modifier.size(size.dp).clip(CircleShape).then(bg).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.size((size * 0.36f).dp)) {
-            val w = size.width; val h = size.height
+    Box(Modifier.size(dia.dp).clip(CircleShape).then(bg).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.size((dia * 0.36f).dp)) {
+            val w = this.size.width; val h = this.size.height
             val c = Color.White
             fun tri(x0: Float, x1: Float) = Path().apply {
                 moveTo(x0, h * 0.5f); lineTo(x1, h * 0.05f); lineTo(x1, h * 0.95f); close()
