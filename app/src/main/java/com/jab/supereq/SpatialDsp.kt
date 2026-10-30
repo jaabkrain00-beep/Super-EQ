@@ -26,6 +26,7 @@ object SParams {
     const val OFF = 0
     const val SPATIAL = 1
     const val EIGHT_D = 2
+    const val CINEMA = 3   // AirPods-style virtual speakers + room
     val mode = MutableStateFlow(OFF)
     val width = MutableStateFlow(0.7f)   // 0..1 stage width
     val room = MutableStateFlow(0.4f)    // 0..1 ambience / surround amount
@@ -37,6 +38,8 @@ object SParams {
 /**
  * Stereo spatial processor. The center (mid) signal - vocals, kick, bass - is never reduced:
  *  - SPATIAL: widens only the side signal above 200 Hz and adds lateral early reflections.
+ *  - CINEMA: binaural virtual speakers at +-30 deg (inter-aural delay + head-shadow cross-feed),
+ *        rear-shaded ambience and a small stereo room reverb: the "AirPods Spatial Audio" feel.
  *  - 8D: the mid signal orbits the head (level pan + inter-aural delay + rear low-pass),
  *        side signal and ambience stay, so music and voice keep full body.
  */
@@ -55,6 +58,22 @@ internal class SpatialDsp(private val fs: Float) {
     private var phase = 0.0
     var outL = 0f
     var outR = 0f
+
+    // CINEMA state
+    private val xl = FloatArray(n)
+    private val xr = FloatArray(n)
+    private var hsL = 0f
+    private var hsR = 0f
+    private var ambLp = 0f
+    private val aHead = (1.0 - exp(-2.0 * PI * 1800.0 / fs)).toFloat()
+    private val aRear = (1.0 - exp(-2.0 * PI * 4000.0 / fs)).toFloat()
+    private val combLen = intArrayOf(1557, 1617, 1491, 1422)
+    private val combL = Array(4) { FloatArray((combLen[it] * fs / 44100f).toInt() + 1) }
+    private val combR = Array(4) { FloatArray(((combLen[it] + 23) * fs / 44100f).toInt() + 1) }
+    private val ciL = IntArray(4)
+    private val ciR = IntArray(4)
+    private val dampL = FloatArray(4)
+    private val dampR = FloatArray(4)
 
     private fun tap(b: FloatArray, ms: Float): Float = b[((w - (ms * fs / 1000f).toInt()) % n + n) % n]
 
@@ -98,6 +117,32 @@ internal class SpatialDsp(private val fs: Float) {
             val side = s * 0.6f * (0.6f + width) + amb * 1.4f
             outL = lim(rl + side)
             outR = lim(rr - side)
+        } else if (mode == SParams.CINEMA) {
+            xl[w] = l; xr[w] = r
+            // far-ear path: ~0.26 ms later, darker (head shadow)
+            hsL += aHead * (tap(xr, 0.26f) - hsL)
+            hsR += aHead * (tap(xl, 0.26f) - hsR)
+            val c = 0.45f * (0.4f + width)
+            val comp = 1f / (1f + 0.7f * c)
+            // rear-shaded lateral ambience (surround channels)
+            ambLp += aRear * (amb - ambLp)
+            // small room: 4 damped combs per ear, slightly different lengths for decorrelation
+            val inp = (m * 0.6f + s * 0.4f) * 0.15f
+            var wl = 0f; var wr = 0f
+            for (k in 0..3) {
+                val bl2 = combL[k]; val br2 = combR[k]
+                val yl = bl2[ciL[k]]; val yr = br2[ciR[k]]
+                dampL[k] = yl * 0.6f + dampL[k] * 0.4f
+                dampR[k] = yr * 0.6f + dampR[k] * 0.4f
+                bl2[ciL[k]] = inp + dampL[k] * 0.78f
+                br2[ciR[k]] = inp + dampR[k] * 0.78f
+                ciL[k] = (ciL[k] + 1) % bl2.size
+                ciR[k] = (ciR[k] + 1) % br2.size
+                wl += yl; wr += yr
+            }
+            val wet = 0.45f * room
+            outL = lim((l + c * hsL) * comp + ambLp * 1.2f + wl * wet)
+            outR = lim((r + c * hsR) * comp - ambLp * 1.2f + wr * wet)
         } else {
             val s2 = sLow + sHi * (1f + 1.4f * width)
             outL = lim(m + s2 + amb)

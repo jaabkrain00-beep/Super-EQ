@@ -652,14 +652,18 @@ fun SpatialCard() {
         SectionTitle(
             "Spatial Audio / 8D",
             "เวทีกว้าง + เสียงรอบทิศทาง โดยไม่ลดเสียงดนตรีหรือเสียงร้อง (ย่านกลางไม่ถูกแตะ) " +
-                "ใช้กับเพลงในแท็บ Library ได้ทันที ส่วนแอปอื่นกดเริ่มด้านล่าง"
+                "ใช้กับเพลงในแท็บ Library ได้ทันที ส่วนแอปอื่นกดเริ่มด้านล่าง " +
+                "· บลูทูธ: เลือก Codec เป็น AAC ในตั้งค่า Bluetooth (แอปเลือก Codec เองไม่ได้)"
         )
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            itemsIndexed(listOf("ปิด", "Spatial", "8D")) { i, t -> Pill(t, mode == i) { Player.setSpatialMode(i) } }
+            itemsIndexed(listOf("ปิด", "Spatial", "8D", "Cinema")) { i, t -> Pill(t, mode == i) { Player.setSpatialMode(i) } }
         }
         if (mode != SParams.OFF) {
             ParamRow("ความกว้างเวที", "${(width * 100).roundToInt()}%", width, 0f..1f) { SParams.width.value = it }
             ParamRow("ห้อง / รอบทิศ", "${(room * 100).roundToInt()}%", room, 0f..1f) { SParams.room.value = it }
+        }
+        if (mode == SParams.CINEMA) {
+            Text("Cinema: ลำโพงเสมือนด้านหน้า + ห้องเล็ก ให้ฟีลใกล้ Spatial Audio ของ AirPods ใช้กับหูฟังเท่านั้น", color = Dim, fontSize = 11.sp)
         }
         if (mode == SParams.EIGHT_D) {
             ParamRow("ความเร็ววน", "รอบละ ${"%.0f".format(period)} วินาที", period, 2f..20f) { SParams.period.value = it }
@@ -753,7 +757,7 @@ fun LibraryScreen() {
                     }
                     Text("เสียงรอบทิศทาง", color = Dim, fontSize = 11.sp)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        itemsIndexed(listOf("ปิด", "Spatial", "8D")) { i, t -> Pill(t, mode == i) { Player.setSpatialMode(i) } }
+                        itemsIndexed(listOf("ปิด", "Spatial", "8D", "Cinema")) { i, t -> Pill(t, mode == i) { Player.setSpatialMode(i) } }
                     }
                 }
                 if (songs.isEmpty()) Text("ไม่พบเพลง หรือยังไม่ได้อนุญาตเข้าถึงไฟล์ (ไปแท็บ Equalizer แล้วกดอนุญาต)", color = Dim, fontSize = 13.sp)
