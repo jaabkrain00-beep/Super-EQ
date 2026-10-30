@@ -1,6 +1,8 @@
 package com.jab.supereq
 
 import android.Manifest
+import android.app.Activity
+import android.media.projection.MediaProjectionManager
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
@@ -186,6 +188,8 @@ fun EqScreen() {
             }
         }
 
+        CaptureCard()
+
         PRESET_GROUPS.forEach { g ->
             Label(g)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -305,6 +309,9 @@ fun LibraryScreen() {
     val songs by Player.songs.collectAsState()
     val cur by Player.current.collectAsState()
     val playing by Player.playing.collectAsState()
+    val kOn by Player.karaoke.collectAsState()
+    val kStrength by KParams.strength.collectAsState()
+    val kRange by KParams.range.collectAsState()
     LaunchedEffect(Unit) { withContext(Dispatchers.IO) { Player.scan() } }
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -316,6 +323,31 @@ fun LibraryScreen() {
             TextButton({ Player.toggle() }) { Text(if (playing) "⏸" else "▶", fontSize = 26.sp, color = Gold) }
             TextButton({ Player.next() }) { Text("⏭", fontSize = 22.sp) }
         }
+        Card(
+            Modifier.padding(horizontal = 16.dp),
+            shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = CardC)
+        ) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("ตัดเสียงร้อง (Karaoke)", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Text("เหลือดนตรี ใช้กับเพลงในแท็บนี้เท่านั้น", color = Dim, fontSize = 11.sp)
+                    }
+                    Switch(kOn, { Player.setKaraoke(it) })
+                }
+                if (kOn) {
+                    Row { Text("ความแรง", color = Color.White, modifier = Modifier.weight(1f)); Text("${(kStrength * 100).roundToInt()}%", color = Gold) }
+                    Slider(kStrength, { KParams.strength.value = it }, valueRange = 0.3f..1f,
+                        colors = SliderDefaults.colors(thumbColor = Gold, activeTrackColor = Violet))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        itemsIndexed(listOf("กว้าง (ทั่วไป)", "เสียงผู้ชาย", "เสียงผู้หญิง")) { i, t ->
+                            Pill(t, kRange == i) { KParams.range.value = i }
+                        }
+                    }
+                    Text("ถ้าเสียงร้องยังเหลือ ลองเพิ่มความแรง หรือสลับช่วงเสียง", color = Dim, fontSize = 11.sp)
+                }
+            }
+        }
         if (songs.isEmpty()) {
             Text("ไม่พบเพลง หรือยังไม่ได้อนุญาตเข้าถึงไฟล์ (ไปแท็บ EQ แล้วกดอนุญาต)", color = Dim, modifier = Modifier.padding(16.dp))
         }
@@ -325,6 +357,69 @@ fun LibraryScreen() {
                     Text(s.title, color = if (cur?.id == s.id) Gold else Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(s.artist, color = Dim, fontSize = 12.sp, maxLines = 1)
                 }
+            }
+        }
+    }
+}
+
+
+@Composable
+fun CaptureCard() {
+    val ctx = LocalContext.current
+    val active by CaptureService.active.collectAsState()
+    val err by CaptureService.error.collectAsState()
+    val s by KParams.strength.collectAsState()
+    val r by KParams.range.collectAsState()
+    val g by KParams.gain.collectAsState()
+    val q by KParams.quiet.collectAsState()
+
+    val projLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        val d = res.data
+        if (res.resultCode == Activity.RESULT_OK && d != null) {
+            ContextCompat.startForegroundService(
+                ctx, Intent(ctx, CaptureService::class.java).setAction(CaptureService.ACT_START)
+                    .putExtra("code", res.resultCode).putExtra("data", d)
+            )
+        }
+    }
+    fun askProjection() {
+        projLauncher.launch(ctx.getSystemService(MediaProjectionManager::class.java).createScreenCaptureIntent())
+    }
+    val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) askProjection()
+    }
+
+    Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = CardC)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("ตัดเสียงร้องจากแอปอื่น (ทดลอง)", color = Color.White, fontWeight = FontWeight.SemiBold)
+            Text(
+                "ใช้กับ YouTube Music ฯลฯ กดเริ่ม แล้วอนุญาตการอัดเสียง จากนั้นเปิดเพลงในแอปอื่นได้เลย",
+                color = Dim, fontSize = 11.sp
+            )
+            Button({
+                if (active) ctx.startService(Intent(ctx, CaptureService::class.java).setAction(CaptureService.ACT_STOP))
+                else if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) == 0) askProjection()
+                else micLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }) { Text(if (active) "หยุดตัดเสียงร้อง" else "เริ่มตัดเสียงร้อง") }
+            if (err.isNotBlank()) Text(err, color = Color(0xFFFF8A80), fontSize = 12.sp)
+
+            Row { Text("ความแรง", color = Color.White, modifier = Modifier.weight(1f)); Text("${(s * 100).roundToInt()}%", color = Gold) }
+            Slider(s, { KParams.strength.value = it }, valueRange = 0.3f..1f,
+                colors = SliderDefaults.colors(thumbColor = Gold, activeTrackColor = Violet))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                itemsIndexed(listOf("กว้าง (ทั่วไป)", "เสียงผู้ชาย", "เสียงผู้หญิง")) { i, t ->
+                    Pill(t, r == i) { KParams.range.value = i }
+                }
+            }
+            Row { Text("ขยายเสียงชดเชย", color = Color.White, modifier = Modifier.weight(1f)); Text("x${"%.1f".format(g)}", color = Gold) }
+            Slider(g, { KParams.gain.value = it }, valueRange = 1f..8f,
+                colors = SliderDefaults.colors(thumbColor = Gold, activeTrackColor = Violet))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("ลดเสียงต้นฉบับ", color = Color.White)
+                    Text("ลดเสียงของแอปต้นทางให้เบา แล้วเล่นเสียงที่ตัดแล้วทางช่อง Alarm (ปรับก่อนกดเริ่ม)", color = Dim, fontSize = 11.sp)
+                }
+                Switch(q, { KParams.quiet.value = it })
             }
         }
     }
